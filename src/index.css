@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@layer base {
+  :root {
+    --background: 45 20% 95%;
+    --foreground: 230 25% 12%;
+
+    --card: 45 15% 92%;
+    --card-foreground: 230 25% 12%;
+
+    --popover: 45 15% 92%;
+    --popover-foreground: 230 25% 12%;
+
+    --primary: 142 72% 38%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 230 10% 85%;
+    --secondary-foreground: 230 20% 25%;
+
+    --muted: 230 10% 88%;
+    --muted-foreground: 230 10% 40%;
+
+    --accent: 38 95% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 230 10% 82%;
+    --input: 230 10% 85%;
+    --ring: 142 72% 38%;
+
+    --radius: 0.75rem;
+
+    --success: 142 72% 38%;
+    --warning: 38 95% 50%;
+    --danger: 0 72% 50%;
+    --info: 210 80% 50%;
+
+    --sidebar-background: 45 15% 93%;
+    --sidebar-foreground: 230 20% 25%;
+    --sidebar-primary: 142 72% 38%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 230 10% 88%;
+    --sidebar-accent-foreground: 230 20% 25%;
+    --sidebar-border: 230 10% 82%;
+    --sidebar-ring: 142 72% 38%;
+
+    --font-display: 'Space Grotesk', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  .dark {
+    --background: 230 25% 7%;
+    --foreground: 60 10% 92%;
+
+    --card: 230 20% 11%;
+    --card-foreground: 60 10% 92%;
+
+    --popover: 230 20% 11%;
+    --popover-foreground: 60 10% 92%;
+
+    --primary: 142 72% 50%;
+    --primary-foreground: 230 25% 7%;
+
+    --secondary: 230 15% 18%;
+    --secondary-foreground: 60 10% 85%;
+
+    --muted: 230 15% 15%;
+    --muted-foreground: 230 10% 55%;
+
+    --accent: 38 95% 60%;
+    --accent-foreground: 230 25% 7%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 60 10% 95%;
+
+    --border: 230 15% 20%;
+    --input: 230 15% 18%;
+    --ring: 142 72% 50%;
+
+    --success: 142 72% 50%;
+    --warning: 38 95% 60%;
+    --danger: 0 72% 55%;
+    --info: 210 80% 60%;
+
+    --sidebar-background: 230 20% 9%;
+    --sidebar-foreground: 60 10% 85%;
+    --sidebar-primary: 142 72% 50%;
+    --sidebar-primary-foreground: 230 25% 7%;
+    --sidebar-accent: 230 15% 15%;
+    --sidebar-accent-foreground: 60 10% 85%;
+    --sidebar-border: 230 15% 18%;
+    --sidebar-ring: 142 72% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-display);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 700;
+  }
+}
+
+@layer utilities {
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-md border border-border/50 rounded-lg;
+  }
+
+  .neon-glow {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.15), 0 0 60px hsl(var(--primary) / 0.05);
+  }
+
+  .neon-text {
+    text-shadow: 0 0 10px hsl(var(--primary) / 0.5), 0 0 30px hsl(var(--primary) / 0.2);
+  }
+
+  .money-positive {
+    @apply text-[hsl(var(--success))];
+  }
+
+  .money-negative {
+    @apply text-[hsl(var(--danger))];
+  }
+
+  .money-neutral {
+    @apply text-muted-foreground;
+  }
+}
