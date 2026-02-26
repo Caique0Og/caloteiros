@@ -38,9 +38,14 @@ const Auth = () => {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error, data } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      toast.error(error.message);
+      if (error.message.includes('OTP')) {
+        toast.info('É necessário verificar o código OTP enviado ao seu email.');
+        setView('otp');
+      } else {
+        toast.error(error.message);
+      }
     } else {
       navigate('/');
     }
