@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skull, LogIn, UserPlus, ArrowLeft, Mail } from 'lucide-react';
 import { toast } from 'sonner';
+import { initEmailJs, sendOtpEmail } from '@/lib/emailjs';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 
 type View = 'login' | 'signup' | 'otp';
@@ -20,7 +21,12 @@ const Auth = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
+  const [sentOtp, setSentOtp] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    initEmailJs();
+  }, []);
 
   if (authLoading) {
     return (
@@ -62,16 +68,15 @@ const Auth = () => {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: window.location.origin },
-    });
-    if (error) {
-      toast.error(error.message);
-    } else {
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    try {
+      await sendOtpEmail({ to_email: email, otp: code });
+      setSentOtp(code);
       toast.success('Código de verificação enviado para seu email!');
       setView('otp');
+    } catch (err: any) {
+      console.error('EmailJS error', err);
+      toast.error('Não foi possível enviar o código. Tente novamente.');
     }
     setLoading(false);
   };
@@ -82,16 +87,21 @@ const Auth = () => {
       toast.error('Digite o código completo');
       return;
     }
+    if (otpCode !== sentOtp) {
+      toast.error('Código incorreto');
+      return;
+    }
+
     setLoading(true);
-    const { error } = await supabase.auth.verifyOtp({
+    const { error } = await supabase.auth.signUp({
       email,
-      token: otpCode,
-      type: 'signup',
+      password,
+      options: { emailRedirectTo: window.location.origin },
     });
     if (error) {
       toast.error(error.message);
     } else {
-      toast.success('Email verificado com sucesso!');
+      toast.success('Cadastro concluído! Redirecionando...');
       navigate('/welcome');
     }
     setLoading(false);
@@ -112,7 +122,6 @@ const Auth = () => {
     setLoading(true);
     try {
       await signInWithGoogle();
-      // Firebase will update auth state; useAuth hook handles redirect
     } catch (err: any) {
       toast.error(err.message || 'Erro ao entrar com Google');
     }
@@ -136,6 +145,7 @@ const Auth = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+
           {/* LOGIN */}
           {view === 'login' && (
             <>
@@ -242,6 +252,7 @@ const Auth = () => {
               </Button>
             </>
           )}
+
         </CardContent>
       </Card>
     </div>
