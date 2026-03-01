@@ -1,32 +1,23 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth, User } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skull, LogIn, UserPlus, ArrowLeft, Mail } from 'lucide-react';
+import { Skull, LogIn, UserPlus, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
-import { initEmailJs, sendOtpEmail } from '@/lib/emailjs';
-import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 
-type View = 'login' | 'signup' | 'otp';
+type View = 'login' | 'signup';
 
 const Auth = () => {
-  const { user, loading: authLoading, signInWithGoogle } = useAuth();
+  const { user, loading: authLoading, signInWithGoogle, signIn, signUp } = useAuth();
   const navigate = useNavigate();
   const [view, setView] = useState<View>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [otpCode, setOtpCode] = useState('');
-  const [sentOtp, setSentOtp] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    initEmailJs();
-  }, []);
 
   if (authLoading) {
     return (
@@ -37,6 +28,13 @@ const Auth = () => {
   }
   if (user) return <Navigate to="/app" replace />;
 
+  const handleSuccessfulAuth = (authUser: User) => {
+    toast.success(`Bem-vindo(a), ${authUser.displayName || authUser.email}!`);
+    // TODO: Sincronizar o usuário com a tabela 'profiles' do Supabase aqui.
+    // Isso pode ser feito chamando uma Edge Function.
+    navigate('/app');
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -44,18 +42,15 @@ const Auth = () => {
       return;
     }
     setLoading(true);
-    const { error, data } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      if (error.message.includes('OTP')) {
-        toast.info('É necessário verificar o código OTP enviado ao seu email.');
-        setView('otp');
-      } else {
-        toast.error(error.message);
-      }
-    } else {
-      navigate('/');
+    try {
+      const userCredential = await signIn(email, password);
+      handleSuccessfulAuth(userCredential.user);
+    } catch (error: any) {
+      console.error("Firebase login error:", error);
+      toast.error(error.message || 'E-mail ou senha inválidos.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -73,54 +68,28 @@ const Auth = () => {
       return;
     }
     setLoading(true);
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
     try {
-      await sendOtpEmail({ to_email: email, otp: code });
-      setSentOtp(code);
-      toast.success('Código de verificação enviado para seu email!');
-      setView('otp');
-    } catch (err: any) {
-      console.error('EmailJS error', err);
-      toast.error('Não foi possível enviar o código. Tente novamente.');
+      const userCredential = await signUp(email, password);
+      handleSuccessfulAuth(userCredential.user);
+    } catch (error: any) {
+      console.error("Firebase signup error:", error);
+      toast.error(error.message || 'Não foi possível criar a conta.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
-
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (otpCode.length < 6) {
-      toast.error('Digite o código completo');
-      return;
-    }
-    if (otpCode !== sentOtp) {
-      toast.error('Código incorreto');
-      return;
-    }
-
-    setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: window.location.origin },
-    });
-    if (error) {
-      toast.error(error.message);
-    } else {
-      toast.success('Cadastro concluído! Redirecionando...');
-      navigate('/welcome');
-    }
-    setLoading(false);
   };
 
   const quickLogin = async (quickEmail: string) => {
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email: quickEmail, password: '123456' });
-    if (error) {
-      toast.error(error.message);
-    } else {
-      navigate('/app');
+    try {
+      const userCredential = await signIn(quickEmail, '123456');
+      handleSuccessfulAuth(userCredential.user);
+    } catch (error: any) {
+      console.error("Firebase quick login error:", error);
+      toast.error(error.message || 'Erro no login rápido.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleGoogleLogin = async () => {
@@ -146,7 +115,6 @@ const Auth = () => {
           <CardDescription>
             {view === 'login' && 'Faça login para continuar'}
             {view === 'signup' && 'Crie sua conta'}
-            {view === 'otp' && 'Verifique seu email'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -218,42 +186,6 @@ const Auth = () => {
 
               <Button variant="ghost" className="w-full gap-2" onClick={() => setView('login')}>
                 <ArrowLeft className="w-4 h-4" /> Voltar ao login
-              </Button>
-            </>
-          )}
-
-          {/* OTP */}
-          {view === 'otp' && (
-            <>
-              <div className="flex justify-center mb-2">
-                <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center">
-                  <Mail className="w-6 h-6 text-primary" />
-                </div>
-              </div>
-              <p className="text-sm text-center text-muted-foreground">
-                Enviamos um código de 6 dígitos para <span className="font-medium text-foreground">{email}</span>
-              </p>
-
-              <form onSubmit={handleVerifyOtp} className="space-y-4">
-                <div className="flex justify-center">
-                  <InputOTP maxLength={6} value={otpCode} onChange={setOtpCode}>
-                    <InputOTPGroup>
-                      <InputOTPSlot index={0} />
-                      <InputOTPSlot index={1} />
-                      <InputOTPSlot index={2} />
-                      <InputOTPSlot index={3} />
-                      <InputOTPSlot index={4} />
-                      <InputOTPSlot index={5} />
-                    </InputOTPGroup>
-                  </InputOTP>
-                </div>
-                <Button type="submit" className="w-full" disabled={loading || otpCode.length < 6}>
-                  Verificar
-                </Button>
-              </form>
-
-              <Button variant="ghost" className="w-full gap-2" onClick={() => setView('signup')}>
-                <ArrowLeft className="w-4 h-4" /> Voltar
               </Button>
             </>
           )}
