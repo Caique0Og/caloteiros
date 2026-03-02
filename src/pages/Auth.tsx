@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth, User } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skull, LogIn, UserPlus, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
+import { db } from '@/lib/firebase';
 
 type View = 'login' | 'signup';
 
@@ -28,11 +30,18 @@ const Auth = () => {
   }
   if (user) return <Navigate to="/app" replace />;
 
-  const handleSuccessfulAuth = (authUser: User) => {
+  const handleSuccessfulAuth = async (authUser: User, isNewUser: boolean = false) => {
     toast.success(`Bem-vindo(a), ${authUser.displayName || authUser.email}!`);
-    // TODO: Sincronizar o usuário com a tabela 'profiles' do Supabase aqui.
-    // Isso pode ser feito chamando uma Edge Function.
-    navigate('/app');
+    if (isNewUser) {
+      try {
+        const username = authUser.displayName || authUser.email!.split('@')[0];
+        await setDoc(doc(db, 'profiles', authUser.uid), {
+          username: username,
+          created_at: serverTimestamp(),
+        });
+      } catch (error) { console.error("Erro ao salvar perfil no Firestore:", error); }
+    }
+    navigate('/app', { replace: true });
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -44,7 +53,7 @@ const Auth = () => {
     setLoading(true);
     try {
       const userCredential = await signIn(email, password);
-      handleSuccessfulAuth(userCredential.user);
+      await handleSuccessfulAuth(userCredential.user);
     } catch (error: any) {
       console.error("Firebase login error:", error);
       toast.error(error.message || 'E-mail ou senha inválidos.');
@@ -70,7 +79,7 @@ const Auth = () => {
     setLoading(true);
     try {
       const userCredential = await signUp(email, password);
-      handleSuccessfulAuth(userCredential.user);
+      await handleSuccessfulAuth(userCredential.user, true);
     } catch (error: any) {
       console.error("Firebase signup error:", error);
       toast.error(error.message || 'Não foi possível criar a conta.');
@@ -83,7 +92,7 @@ const Auth = () => {
     setLoading(true);
     try {
       const userCredential = await signIn(quickEmail, '123456');
-      handleSuccessfulAuth(userCredential.user);
+      await handleSuccessfulAuth(userCredential.user);
     } catch (error: any) {
       console.error("Firebase quick login error:", error);
       toast.error(error.message || 'Erro no login rápido.');
@@ -95,7 +104,8 @@ const Auth = () => {
   const handleGoogleLogin = async () => {
     setLoading(true);
     try {
-      await signInWithGoogle();
+      const result = await signInWithGoogle();
+      // O onAuthStateChanged cuidará do redirecionamento, mas podemos forçar a criação do perfil se necessário.
     } catch (err: any) {
       toast.error(err.message || 'Erro ao entrar com Google');
     }
