@@ -14,7 +14,7 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp
 type View = 'login' | 'signup' | 'otp';
 
 const Auth = () => {
-  const { user, loading: authLoading, signInWithGoogle } = useAuth();
+  const { user, loading: authLoading, signIn, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [view, setView] = useState<View>('login');
   const [email, setEmail] = useState('');
@@ -44,16 +44,11 @@ const Auth = () => {
       return;
     }
     setLoading(true);
-    const { error, data } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      if (error.message.includes('OTP')) {
-        toast.info('É necessário verificar o código OTP enviado ao seu email.');
-        setView('otp');
-      } else {
-        toast.error(error.message);
-      }
-    } else {
-      navigate('/');
+    try {
+      await signIn(email, password);
+      navigate('/app');
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao entrar com email e senha');
     }
     setLoading(false);
   };
@@ -114,11 +109,11 @@ const Auth = () => {
 
   const quickLogin = async (quickEmail: string) => {
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email: quickEmail, password: '123456' });
-    if (error) {
-      toast.error(error.message);
-    } else {
+    try {
+      await signIn(quickEmail, '123456');
       navigate('/app');
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro no acesso r�pido');
     }
     setLoading(false);
   };
