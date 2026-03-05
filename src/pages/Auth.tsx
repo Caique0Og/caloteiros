@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth, User } from '@/hooks/useAuth';
@@ -9,17 +9,28 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skull, LogIn, UserPlus, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
+import { sendOtpEmail } from '@/lib/emailjs';
 
-type View = 'login' | 'signup';
+type View = 'login' | 'signup' | 'otp';
+
+// Gera um código OTP de 6 dígitos
+const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 const Auth = () => {
   const { user, loading: authLoading, signInWithGoogle, signIn, signUp } = useAuth();
   const navigate = useNavigate();
+
   const [view, setView] = useState<View>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Estado do OTP
+  const [otpCode, setOtpCode] = useState('');
+  const [generatedOtp, setGeneratedOtp] = useState('');
+  const [otpEmail, setOtpEmail] = useState('');
+  const [otpPassword, setOtpPassword] = useState('');
 
   if (authLoading) {
     return (
@@ -36,10 +47,12 @@ const Auth = () => {
       try {
         const username = authUser.displayName || authUser.email!.split('@')[0];
         await setDoc(doc(db, 'profiles', authUser.uid), {
-          username: username,
+          username,
           created_at: serverTimestamp(),
         });
-      } catch (error) { console.error("Erro ao salvar perfil no Firestore:", error); }
+      } catch (error) {
+        console.error('Erro ao salvar perfil no Firestore:', error);
+      }
     }
     navigate('/app', { replace: true });
   };
@@ -55,13 +68,14 @@ const Auth = () => {
       const userCredential = await signIn(email, password);
       await handleSuccessfulAuth(userCredential.user);
     } catch (error: any) {
-      console.error("Firebase login error:", error);
+      console.error('Firebase login error:', error);
       toast.error(error.message || 'E-mail ou senha inválidos.');
     } finally {
       setLoading(false);
     }
   };
 
+  // Etapa 1 do cadastro: valida campos e envia OTP
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password || !confirmPassword) {
@@ -76,13 +90,61 @@ const Auth = () => {
       toast.error('A senha deve ter pelo menos 6 caracteres');
       return;
     }
+
     setLoading(true);
     try {
-      const userCredential = await signUp(email, password);
+      const otp = generateOtp();
+      await sendOtpEmail({ to_email: email, otp });
+
+      // Salva o OTP e credenciais em memória para usar depois
+      setGeneratedOtp(otp);
+      setOtpEmail(email);
+      setOtpPassword(password);
+
+      toast.success('Código enviado para seu email!');
+      setView('otp');
+    } catch (error: any) {
+      console.error('Erro ao enviar OTP:', error);
+      toast.error('Não foi possível enviar o código. Tente novamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Etapa 2: valida o OTP e cria a conta
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otpCode) {
+      toast.error('Digite o código recebido');
+      return;
+    }
+    if (otpCode !== generatedOtp) {
+      toast.error('Código inválido. Tente novamente.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const userCredential = await signUp(otpEmail, otpPassword);
       await handleSuccessfulAuth(userCredential.user, true);
     } catch (error: any) {
-      console.error("Firebase signup error:", error);
+      console.error('Firebase signup error:', error);
       toast.error(error.message || 'Não foi possível criar a conta.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setLoading(true);
+    try {
+      const otp = generateOtp();
+      await sendOtpEmail({ to_email: otpEmail, otp });
+      setGeneratedOtp(otp);
+      setOtpCode('');
+      toast.success('Novo código enviado!');
+    } catch (error) {
+      toast.error('Erro ao reenviar o código.');
     } finally {
       setLoading(false);
     }
@@ -94,7 +156,7 @@ const Auth = () => {
       const userCredential = await signIn(quickEmail, '123456');
       await handleSuccessfulAuth(userCredential.user);
     } catch (error: any) {
-      console.error("Firebase quick login error:", error);
+      console.error('Firebase quick login error:', error);
       toast.error(error.message || 'Erro no login rápido.');
     } finally {
       setLoading(false);
@@ -104,12 +166,21 @@ const Auth = () => {
   const handleGoogleLogin = async () => {
     setLoading(true);
     try {
-      const result = await signInWithGoogle();
-      // O onAuthStateChanged cuidará do redirecionamento, mas podemos forçar a criação do perfil se necessário.
+      // O onAuthStateChanged cuidará da navegação, mas precisamos saber se é um novo usuário
+      // para criar o perfil no Firestore.
+      const { user, _tokenResponse } = await signInWithGoogle();
+      if (_tokenResponse?.isNewUser) {
+        // Chama a mesma lógica de criação de perfil
+        await handleSuccessfulAuth(user, true);
+      } else {
+        // Se for um usuário existente, apenas mostra a mensagem de boas-vindas
+        await handleSuccessfulAuth(user);
+      }
     } catch (err: any) {
       toast.error(err.message || 'Erro ao entrar com Google');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -125,8 +196,10 @@ const Auth = () => {
           <CardDescription>
             {view === 'login' && 'Faça login para continuar'}
             {view === 'signup' && 'Crie sua conta'}
+            {view === 'otp' && `Verifique seu email`}
           </CardDescription>
         </CardHeader>
+
         <CardContent className="space-y-4">
 
           {/* LOGIN */}
@@ -152,7 +225,12 @@ const Auth = () => {
               </div>
 
               <Button variant="outline" className="w-full gap-2" onClick={handleGoogleLogin} disabled={loading}>
-                <svg className="w-4 h-4" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                <svg className="w-4 h-4" viewBox="0 0 24 24">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                </svg>
                 Entrar com Google
               </Button>
 
@@ -190,12 +268,48 @@ const Auth = () => {
                   <Input id="signup-confirm" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repita a senha" />
                 </div>
                 <Button type="submit" className="w-full gap-2" disabled={loading}>
-                  <UserPlus className="w-4 h-4" /> Cadastrar
+                  <UserPlus className="w-4 h-4" />
+                  {loading ? 'Enviando código...' : 'Continuar'}
                 </Button>
               </form>
 
               <Button variant="ghost" className="w-full gap-2" onClick={() => setView('login')}>
                 <ArrowLeft className="w-4 h-4" /> Voltar ao login
+              </Button>
+            </>
+          )}
+
+          {/* OTP */}
+          {view === 'otp' && (
+            <>
+              <p className="text-sm text-muted-foreground text-center">
+                Enviamos um código de 6 dígitos para <strong>{otpEmail}</strong>. Digite-o abaixo para confirmar seu cadastro.
+              </p>
+              <form onSubmit={handleVerifyOtp} className="space-y-3">
+                <div className="space-y-1">
+                  <Label htmlFor="otp">Código de verificação</Label>
+                  <Input
+                    id="otp"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="000000"
+                    className="text-center text-xl tracking-widest"
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? 'Criando conta...' : 'Verificar e cadastrar'}
+                </Button>
+              </form>
+
+              <Button variant="ghost" className="w-full text-sm" onClick={handleResendOtp} disabled={loading}>
+                Reenviar código
+              </Button>
+
+              <Button variant="ghost" className="w-full gap-2" onClick={() => { setView('signup'); setOtpCode(''); }}>
+                <ArrowLeft className="w-4 h-4" /> Voltar
               </Button>
             </>
           )}

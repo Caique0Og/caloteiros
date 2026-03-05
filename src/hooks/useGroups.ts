@@ -1,153 +1,178 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  doc,
+  getDoc,
+  writeBatch,
+  serverTimestamp,
+  deleteDoc,
+  Timestamp,
+} from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { calculateDebts } from '@/lib/debt-calculator';
-import { Group, Member, Expense, Debt } from '@/lib/types';
+import type { Group, Member, Expense, Debt } from '@/lib/types';
 import { useAuth } from './useAuth';
+import { toast } from 'sonner';
 
 export function useGroups() {
   const { user } = useAuth();
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchGroups = useCallback(async () => {
-    if (!user) { setGroups([]); setLoading(false); return; }
-    
-    // Get groups where user is a member
-    const { data: memberships } = await supabase
-      .from('group_members')
-      .select('group_id')
-      .eq('user_id', user.id);
+  // Função para buscar os detalhes de um único grupo (membros, despesas, dívidas)
+  const fetchGroupDetails = async (groupId: string): Promise<Omit<Group, 'id' | 'name' | 'adminId' | 'date' | 'location'>> => {
+    const membersCol = collection(db, 'groups', groupId, 'members');
+    const expensesCol = collection(db, 'groups', groupId, 'expenses');
+    const debtsCol = collection(db, 'groups', groupId, 'debts');
 
-    if (!memberships?.length) { setGroups([]); setLoading(false); return; }
-
-    const groupIds = memberships.map(m => m.group_id);
-    
-    const [groupsRes, membersRes, expensesRes, debtsRes] = await Promise.all([
-      supabase.from('groups').select('*').in('id', groupIds),
-      supabase.from('group_members').select('*, profiles(id, username)').in('group_id', groupIds),
-      supabase.from('expenses').select('*').in('group_id', groupIds),
-      supabase.from('debts').select('*').in('group_id', groupIds),
+    const [membersSnap, expensesSnap, debtsSnap] = await Promise.all([
+      getDocs(membersCol),
+      getDocs(expensesCol),
+      getDocs(debtsCol),
     ]);
 
-    const assembled: Group[] = (groupsRes.data ?? []).map(g => ({
-      id: g.id,
-      name: g.name,
-      adminId: g.owner_id,
-      date: g.created_at,
-      location: g.location ?? undefined,
-      members: (membersRes.data ?? [])
-        .filter(m => m.group_id === g.id)
-        .map(m => ({ id: m.user_id, name: (m.profiles as any)?.username ?? '?' })),
-      expenses: (expensesRes.data ?? [])
-        .filter(e => e.group_id === g.id)
-        .map(e => ({
-          id: e.id, groupId: e.group_id, payerId: e.payer_id,
-          amount: Number(e.amount), description: e.description, date: e.created_at,
-        })),
-      debts: (debtsRes.data ?? [])
-        .filter(d => d.group_id === g.id)
-        .map(d => ({
-          id: d.id, debtorId: d.debtor_id, creditorId: d.creditor_id,
-          amount: Number(d.amount), status: d.status as Debt['status'],
-        })),
-    }));
+    const members: Member[] = membersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Member));
+    const expenses: Expense[] = expensesSnap.docs.map(d => {
+      const data = d.data();
+      return {
+        id: d.id,
+        ...data,
+        date: (data.date as Timestamp).toDate().toISOString(),
+      } as Expense;
+    });
+    const debts: Debt[] = debtsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Debt));
 
-    setGroups(assembled);
-    setLoading(false);
+    return { members, expenses, debts };
+  };
+
+  const fetchGroups = useCallback(async () => {
+    if (!user) {
+      setGroups([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'groups'), where('memberIds', 'array-contains', user.uid));
+      const querySnapshot = await getDocs(q);
+
+      const groupsData = await Promise.all(
+        querySnapshot.docs.map(async (doc) => {
+          const groupData = doc.data();
+          const details = await fetchGroupDetails(doc.id);
+          return {
+            id: doc.id,
+            name: groupData.name,
+            adminId: groupData.createdBy,
+            date: (groupData.createdAt as Timestamp).toDate().toISOString(),
+            location: groupData.location,
+            ...details,
+          };
+        })
+      );
+
+      setGroups(groupsData as Group[]);
+    } catch (error) {
+      console.error("Error fetching groups from Firestore:", error);
+      toast.error("Erro ao carregar os grupos.");
+    } finally {
+      setLoading(false);
+    }
   }, [user]);
 
-  useEffect(() => { fetchGroups(); }, [fetchGroups]);
+  useEffect(() => {
+    fetchGroups();
+  }, [fetchGroups]);
 
-  const createGroup = useCallback(
-    async (name: string, location: string, memberUsernames: string[]) => {
-      if (!user) return null;
+  const createGroup = async (name: string, location: string, memberUsernames: string[]): Promise<{ id: string; name: string } | null> => {
+    if (!user) return null;
 
-      // Generate ID client-side to avoid needing .select() after insert
-      const groupId = crypto.randomUUID();
+    const batch = writeBatch(db);
+    const creatorUsername = user.displayName || user.email!.split('@')[0];
+    const allUsernames = [...new Set([creatorUsername, ...memberUsernames])];
 
-      const { error: groupErr } = await supabase
-        .from('groups')
-        .insert({ id: groupId, name, location: location || null, owner_id: user.id });
+    // 1. Encontrar UIDs dos usuários a partir dos usernames
+    const profilesQuery = query(collection(db, 'profiles'), where('username', 'in', allUsernames));
+    const profilesSnap = await getDocs(profilesQuery);
+    const foundMembers = profilesSnap.docs.map(d => ({ id: d.id, name: d.data().username as string }));
 
-      if (groupErr) { console.error('Group creation error:', groupErr); return null; }
+    if (foundMembers.length !== allUsernames.length) {
+      const notFound = allUsernames.filter(un => !foundMembers.some(fm => fm.name === un));
+      toast.error(`Usuários não encontrados: ${notFound.join(', ')}`);
+      return null;
+    }
 
-      // Add creator as member first
-      const { error: memberErr } = await supabase
-        .from('group_members')
-        .insert({ group_id: groupId, user_id: user.id });
+    // 2. Criar o documento do grupo
+    const groupDocRef = await addDoc(collection(db, 'groups'), {
+      name,
+      location,
+      createdBy: user.uid,
+      createdAt: serverTimestamp(),
+      memberIds: foundMembers.map(m => m.id),
+    });
 
-      if (memberErr) { console.error('Member add error:', memberErr); }
+    // 3. Adicionar membros na subcoleção 'members'
+    foundMembers.forEach(member => {
+      const memberDocRef = doc(db, 'groups', groupDocRef.id, 'members', member.id);
+      batch.set(memberDocRef, { name: member.name });
+    });
 
-      // Find other users by username and add them
-      if (memberUsernames.length > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, username');
-        
-        if (profiles) {
-          const membersToAdd = memberUsernames
-            .map(name => profiles.find(p => p.username.toLowerCase() === name.toLowerCase()))
-            .filter(p => p && p.id !== user.id)
-            .map(p => ({ group_id: groupId, user_id: p!.id }));
+    await batch.commit();
+    await fetchGroups(); // Recarrega os grupos
+    return { id: groupDocRef.id, name };
+  };
 
-          if (membersToAdd.length > 0) {
-            await supabase.from('group_members').insert(membersToAdd);
-          }
-        }
-      }
+  const addExpense = async (groupId: string, payerId: string, amount: number, description: string) => {
+    if (!user) return;
 
-      await fetchGroups();
-      return { id: groupId, name };
-    },
-    [user, fetchGroups]
-  );
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
 
-  const addExpense = useCallback(
-    async (groupId: string, payerId: string, amount: number, description: string) => {
-      if (!user) return;
-      
-      await supabase.from('expenses').insert({
-        group_id: groupId, payer_id: payerId, amount, description,
-      });
+    const batch = writeBatch(db);
 
-      // Recalculate debts
-      const group = groups.find(g => g.id === groupId);
-      if (!group) return;
+    // 1. Adicionar a nova despesa
+    const expenseColRef = collection(db, 'groups', groupId, 'expenses');
+    batch.set(doc(expenseColRef), { payerId, amount, description, date: serverTimestamp(), groupId });
 
-      const newExpenses = [...group.expenses, { id: '', groupId, payerId, amount, description, date: '' }];
-      const newDebts = calculateDebts(group.members, newExpenses);
+    // 2. Recalcular dívidas
+    const tempExpense: Expense = { id: '', groupId, payerId, amount, description, date: new Date().toISOString() };
+    const newDebts = calculateDebts(group.members, [...group.expenses, tempExpense]);
 
-      // Delete old debts and insert new ones
-      await supabase.from('debts').delete().eq('group_id', groupId);
-      if (newDebts.length > 0) {
-        await supabase.from('debts').insert(
-          newDebts.map(d => ({
-            group_id: groupId, debtor_id: d.debtorId, creditor_id: d.creditorId,
-            amount: d.amount, status: 'pending',
-          }))
-        );
-      }
+    // 3. Deletar dívidas antigas
+    const oldDebtsQuery = query(collection(db, 'groups', groupId, 'debts'));
+    const oldDebtsSnap = await getDocs(oldDebtsQuery);
+    oldDebtsSnap.forEach(debtDoc => batch.delete(debtDoc.ref));
 
-      await fetchGroups();
-    },
-    [user, groups, fetchGroups]
-  );
+    // 4. Adicionar novas dívidas
+    const debtsColRef = collection(db, 'groups', groupId, 'debts');
+    newDebts.forEach(debt => {
+      batch.set(doc(debtsColRef), { ...debt, id: undefined }); // Firestore gera o ID
+    });
 
-  const settleDebt = useCallback(
-    async (groupId: string, debtId: string, accept: boolean) => {
-      await supabase.from('debts').update({ status: accept ? 'settled' : 'rejected' }).eq('id', debtId);
-      await fetchGroups();
-    },
-    [fetchGroups]
-  );
+    await batch.commit();
+    await fetchGroups();
+  };
 
-  const deleteGroup = useCallback(
-    async (groupId: string) => {
-      await supabase.from('groups').delete().eq('id', groupId);
-      await fetchGroups();
-    },
-    [fetchGroups]
-  );
+  const settleDebt = async (groupId: string, debtId: string, accept: boolean) => {
+    const debtDocRef = doc(db, 'groups', groupId, 'debts', debtId);
+    const batch = writeBatch(db);
+    batch.update(debtDocRef, { status: accept ? 'settled' : 'rejected' });
+    await batch.commit();
+    await fetchGroups();
+  };
+
+  const deleteGroup = async (groupId: string) => {
+    // No Firestore, deletar subcoleções é mais complexo e geralmente
+    // requer uma Cloud Function para ser feito de forma segura e completa.
+    // Por simplicidade, vamos deletar apenas o documento do grupo.
+    await deleteDoc(doc(db, 'groups', groupId));
+    await fetchGroups();
+  };
 
   return { groups, loading, createGroup, addExpense, settleDebt, deleteGroup };
 }
