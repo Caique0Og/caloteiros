@@ -58,7 +58,7 @@ export function useGroups() {
 
     setLoading(true);
     try {
-      const q = query(collection(db, 'groups'), where('memberIds', 'array-contains', user.uid));
+      const q = query(collection(db, 'groups'), where('memberIds', 'array-contains', user.id));
       const querySnapshot = await getDocs(q);
 
       const groupsData = await Promise.all(
@@ -93,7 +93,7 @@ export function useGroups() {
     if (!user) return null;
 
     const batch = writeBatch(db);
-    const creatorUsername = user.displayName || user.email!.split('@')[0];
+    const creatorUsername = user.user_metadata?.username || user.email?.split('@')[0];
     const allUsernames = [...new Set([creatorUsername, ...memberUsernames])];
 
     // 1. Encontrar UIDs dos usuários a partir dos usernames
@@ -111,7 +111,7 @@ export function useGroups() {
     const groupDocRef = await addDoc(collection(db, 'groups'), {
       name,
       location,
-      createdBy: user.uid,
+      createdBy: user.id,
       createdAt: serverTimestamp(),
       memberIds: foundMembers.map(m => m.id),
     });
@@ -151,7 +151,8 @@ export function useGroups() {
     // 4. Adicionar novas dívidas
     const debtsColRef = collection(db, 'groups', groupId, 'debts');
     newDebts.forEach(debt => {
-      batch.set(doc(debtsColRef), { ...debt, id: undefined }); // Firestore gera o ID
+      const { id, ...rest } = debt; // Remove o id, Firestore gera automaticamente
+      batch.set(doc(debtsColRef), rest);
     });
 
     await batch.commit();
