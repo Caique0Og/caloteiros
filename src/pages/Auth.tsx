@@ -42,11 +42,20 @@ const Auth = () => {
   if (user) return <Navigate to="/app" replace />;
 
   const handleSuccessfulAuth = async (authUser: User, isNewUser: boolean = false) => {
-    toast.success(`Bem-vindo(a), ${authUser.displayName || authUser.email}!`);
+    if (!authUser) {
+      console.error('handleSuccessfulAuth: authUser is undefined');
+      return;
+    }
+    
+    const displayName = authUser.displayName || authUser.email || 'Usuário';
+    toast.success(`Bem-vindo(a), ${displayName}!`);
+
     if (isNewUser) {
       try {
-        const username = authUser.displayName || authUser.email!.split('@')[0];
-        await setDoc(doc(db, 'profiles', authUser.uid), {
+        const username = authUser.displayName || authUser.email?.split('@')[0] || 'usuário';
+        const uid = authUser.uid || authUser.id; // Suporta ambos
+        
+        await setDoc(doc(db, 'profiles', uid), {
           username,
           created_at: serverTimestamp(),
         });
@@ -166,17 +175,11 @@ const Auth = () => {
   const handleGoogleLogin = async () => {
     setLoading(true);
     try {
-      // O onAuthStateChanged cuidará da navegação, mas precisamos saber se é um novo usuário
-      // para criar o perfil no Firestore.
-      const { user, _tokenResponse } = await signInWithGoogle();
-      if (_tokenResponse?.isNewUser) {
-        // Chama a mesma lógica de criação de perfil
-        await handleSuccessfulAuth(user, true);
-      } else {
-        // Se for um usuário existente, apenas mostra a mensagem de boas-vindas
-        await handleSuccessfulAuth(user);
-      }
+      await signInWithGoogle();
+      // Com popup, o fluxo continua aqui após o login.
+      // O observador de estado (onAuthStateChanged) cuidará do redirecionamento para /app.
     } catch (err: any) {
+      console.error('Erro ao entrar com Google:', err);
       toast.error(err.message || 'Erro ao entrar com Google');
     } finally {
       setLoading(false);
