@@ -3,11 +3,15 @@ import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useFirebaseAuth } from './useFirebaseAuth';
 
-type AppUser = {
-  id: string;
+export type User = {
+  id?: string;
+  uid?: string;
   email?: string | null;
+  displayName?: string | null;
   user_metadata?: Record<string, any>;
 };
+
+export type AppUser = User;
 
 export function useAuth() {
   const firebase = useFirebaseAuth();
@@ -50,15 +54,27 @@ export function useAuth() {
   const user: AppUser | null = (supabaseUser as unknown as AppUser | null) ?? normalizedFirebaseUser;
   const loading = supabaseLoading || firebase.loading;
 
-  const signIn = (email: string, password: string) =>
-    supabase.auth.signInWithPassword({ email, password });
+  const signIn = async (email: string, password: string) => {
+    try {
+      // Tenta Firebase primeiro, pois Auth.tsx depende do Firestore
+      const result = await firebase.signIn(email, password);
+      return { user: result.user };
+    } catch (error) {
+      // Fallback ou erro
+      console.error("Firebase signIn error:", error);
+      throw error;
+    }
+  };
 
-  const signUp = (email: string, password: string) =>
-    supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: window.location.origin },
-    });
+  const signUp = async (email: string, password: string) => {
+    try {
+      const result = await firebase.signUp(email, password);
+      return { user: result.user };
+    } catch (error) {
+      console.error("Firebase signUp error:", error);
+      throw error;
+    }
+  };
 
   // Keep Google flow unchanged (Firebase).
   const signInWithGoogle = () => firebase.signInWithGoogle();

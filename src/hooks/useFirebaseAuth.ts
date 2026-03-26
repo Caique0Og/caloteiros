@@ -1,18 +1,35 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
-  GoogleAuthProvider,
   signInWithPopup,
+  GoogleAuthProvider,
+  getAdditionalUserInfo,
   type User,
 } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 export function useFirebaseAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const createProfileIfNew = async (user: User, isNewUser: boolean) => {
+    if (isNewUser) {
+      try {
+        const username = user.displayName || user.email?.split('@')[0] || 'Usuário';
+        await setDoc(doc(db, 'profiles', user.uid), {
+          username,
+          created_at: serverTimestamp(),
+        });
+        console.log("Perfil criado para novo usuário:", user.uid);
+      } catch (error) {
+        console.error("Erro ao criar perfil no Firestore:", error);
+      }
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -28,8 +45,20 @@ export function useFirebaseAuth() {
   const signUp = (email: string, password: string) =>
     createUserWithEmailAndPassword(auth, email, password);
 
-  const signInWithGoogle = () =>
-    signInWithPopup(auth, new GoogleAuthProvider());
+  const signInWithGoogle = useCallback(async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const additionalInfo = getAdditionalUserInfo(result);
+      if (additionalInfo?.isNewUser) {
+        await createProfileIfNew(result.user, true);
+      }
+      return result;
+    } catch (error) {
+      console.error("Erro no login Google Popup:", error);
+      throw error;
+    }
+  }, []);
 
   const signOut = () => firebaseSignOut(auth);
 
