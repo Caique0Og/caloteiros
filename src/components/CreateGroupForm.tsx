@@ -5,13 +5,14 @@ import { Label } from '@/components/ui/label';
 import { Plus, X, Users } from 'lucide-react';
 
 interface Props {
-  onSubmit: (name: string, location: string, memberUsernames: string[]) => void;
+  onSubmit: (name: string, location: string, budget: number, memberUsernames: string[]) => void;
   onCancel: () => void;
 }
 
 export default function CreateGroupForm({ onSubmit, onCancel }: Props) {
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
+  const [budget, setBudget] = useState(0);
   const [members, setMembers] = useState(['', '']);
 
   const addMember = () => setMembers([...members, '']);
@@ -24,7 +25,7 @@ export default function CreateGroupForm({ onSubmit, onCancel }: Props) {
     e.preventDefault();
     const validMembers = members.filter((m) => m.trim());
     if (!name.trim() || validMembers.length < 1) return;
-    onSubmit(name.trim(), location.trim(), validMembers.map(m => m.trim()));
+    onSubmit(name.trim(), location.trim(), budget, validMembers.map(m => m.trim()));
   };
 
   return (
@@ -44,6 +45,11 @@ export default function CreateGroupForm({ onSubmit, onCancel }: Props) {
       <div className="space-y-2">
         <Label htmlFor="location">Local (opcional)</Label>
         <Input id="location" placeholder="Ex: Bar do Zé" value={location} onChange={(e) => setLocation(e.target.value)} maxLength={100} />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="budget">Orçamento (opcional)</Label>
+        <Input id="budget" type="number" placeholder="Ex: 500" value={budget} onChange={(e) => setBudget(Number(e.target.value))} min={0} />
       </div>
 
       <div className="space-y-3">

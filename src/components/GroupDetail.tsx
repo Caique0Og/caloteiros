@@ -3,7 +3,7 @@ import { Group } from '@/lib/types';
 import { formatCurrency } from '@/lib/debt-calculator';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, ArrowRight, Receipt, Trash2, MapPin, Calendar, CheckCircle, XCircle } from 'lucide-react';
+import { Plus, ArrowRight, Receipt, Trash2, MapPin, Calendar, CheckCircle, XCircle, Edit } from 'lucide-react';
 import AddExpenseForm from './AddExpenseForm';
 import { toast } from 'sonner';
 
@@ -12,15 +12,18 @@ interface Props {
   onAddExpense: (payerId: string, amount: number, description: string) => void;
   onSettleDebt: (debtId: string, accept: boolean) => void;
   onDelete: () => void;
+  onEdit?: () => void;
   onBack: () => void;
 }
 
-export default function GroupDetail({ group, onAddExpense, onSettleDebt, onDelete, onBack }: Props) {
+export default function GroupDetail({ group, onAddExpense, onSettleDebt, onDelete, onEdit, onBack }: Props) {
   const [showExpenseForm, setShowExpenseForm] = useState(false);
 
   const getMemberName = (id: string) => group.members.find((m) => m.id === id)?.name ?? '?';
   const totalExpenses = group.expenses.reduce((s, e) => s + e.amount, 0);
-  const perPerson = group.members.length > 0 ? totalExpenses / group.members.length : 0;
+  const total = group.budget && group.budget > 0 ? group.budget : totalExpenses;
+  const perPerson = total / group.members.length;
+  const expenseAdjustmentRatio = totalExpenses > 0 ? total / totalExpenses : 1;
 
   const handleSettle = (debtId: string, accept: boolean) => {
     onSettleDebt(debtId, accept);
@@ -44,22 +47,32 @@ export default function GroupDetail({ group, onAddExpense, onSettleDebt, onDelet
             {group.location && (
               <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{group.location}</span>
             )}
+            {group.budget && (
+              <span className="flex items-center gap-1">Orçamento: {formatCurrency(group.budget)}</span>
+            )}
             <span className="flex items-center gap-1">
               <Calendar className="w-3.5 h-3.5" />
               {new Date(group.date).toLocaleDateString('pt-BR')}
             </span>
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onDelete} className="text-muted-foreground hover:text-destructive">
-          <Trash2 className="w-4 h-4" />
-        </Button>
+        <div className="flex gap-2">
+          {onEdit && (
+            <Button variant="ghost" size="icon" onClick={onEdit} className="text-muted-foreground hover:text-primary">
+              <Edit className="w-4 h-4" />
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" onClick={onDelete} className="text-muted-foreground hover:text-destructive">
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-3">
         <div className="glass-card p-4 text-center">
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Total</p>
-          <p className="text-xl font-bold text-primary mt-1">{formatCurrency(totalExpenses)}</p>
+          <p className="text-xl font-bold text-primary mt-1">{formatCurrency(total)}</p>
         </div>
         <div className="glass-card p-4 text-center">
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Por pessoa</p>
@@ -110,7 +123,12 @@ export default function GroupDetail({ group, onAddExpense, onSettleDebt, onDelet
                     Pago por <span className="text-foreground font-medium">{getMemberName(e.payerId)}</span>
                   </p>
                 </div>
-                <p className="font-mono font-semibold text-primary">{formatCurrency(e.amount)}</p>
+                <p className="font-mono font-semibold text-primary">
+                  {formatCurrency(e.amount)}
+                  {group.budget && group.budget > 0 && totalExpenses > 0 && (
+                    <span className="text-xs text-muted-foreground ml-2">({formatCurrency(e.amount * expenseAdjustmentRatio)} ajustado)</span>
+                  )}
+                </p>
               </div>
             ))}
           </div>

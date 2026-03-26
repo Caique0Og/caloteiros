@@ -6,11 +6,13 @@ import { Expense, Member, Debt } from './types';
  */
 export function calculateDebts(
   members: Member[],
-  expenses: Expense[]
+  expenses: Expense[],
+  budget?: number
 ): Debt[] {
   if (members.length === 0 || expenses.length === 0) return [];
 
-  const total = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const expenseTotal = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const total = budget && budget > 0 ? budget : expenseTotal;
   const perPerson = total / members.length;
 
   // Calculate net balance for each person
@@ -19,9 +21,11 @@ export function calculateDebts(
   const balances = new Map<string, number>();
   members.forEach((m) => balances.set(m.id, 0));
 
+  const scaling = budget && budget > 0 && expenseTotal > 0 ? budget / expenseTotal : 1;
+
   expenses.forEach((e) => {
     const current = balances.get(e.payerId) ?? 0;
-    balances.set(e.payerId, current + e.amount);
+    balances.set(e.payerId, current + e.amount * scaling);
   });
 
   // Subtract fair share

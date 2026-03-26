@@ -7,16 +7,19 @@ import { useTheme } from '@/hooks/useTheme';
 import GroupList from '@/components/GroupList';
 import GroupDetail from '@/components/GroupDetail';
 import CreateGroupForm from '@/components/CreateGroupForm';
+import EditGroupForm from '@/components/EditGroupForm';
 import { toast } from 'sonner';
 
 const AuthenticatedLanding = () => {
   const { user, signOut } = useAuth();
-  const { groups, loading, createGroup, addExpense, settleDebt, deleteGroup } = useGroups();
+  const { groups, loading, createGroup, addExpense, settleDebt, deleteGroup, updateGroup, removeMember } = useGroups();
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const { theme, toggleTheme } = useTheme();
 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId);
+  const editingGroup = groups.find((g) => g.id === editingGroupId);
   const username = user?.user_metadata?.username || user?.email?.split('@')[0] || 'Usuario';
 
   if (loading) {
@@ -63,8 +66,8 @@ const AuthenticatedLanding = () => {
       <main className="max-w-2xl mx-auto px-4 py-6">
         {showCreateForm ? (
           <CreateGroupForm
-            onSubmit={async (name, location, memberUsernames) => {
-              const group = await createGroup(name, location, memberUsernames);
+            onSubmit={async (name, location, budget, memberUsernames) => {
+              const group = await createGroup(name, location, budget, memberUsernames);
               setShowCreateForm(false);
               if (group) {
                 setSelectedGroupId(group.id);
@@ -72,6 +75,19 @@ const AuthenticatedLanding = () => {
               }
             }}
             onCancel={() => setShowCreateForm(false)}
+          />
+        ) : editingGroup ? (
+          <EditGroupForm
+            group={editingGroup}
+            onUpdate={async (updates) => {
+              await updateGroup(editingGroup.id, updates);
+              setEditingGroupId(null);
+              setSelectedGroupId(editingGroup.id); // Stay on the group
+            }}
+            onRemoveMember={async (memberId) => {
+              await removeMember(editingGroup.id, memberId);
+            }}
+            onCancel={() => setEditingGroupId(null)}
           />
         ) : selectedGroup ? (
           <GroupDetail
@@ -83,6 +99,7 @@ const AuthenticatedLanding = () => {
               setSelectedGroupId(null);
               toast.success('Grupo removido!');
             }}
+            onEdit={() => setEditingGroupId(selectedGroup.id)}
             onBack={() => setSelectedGroupId(null)}
           />
         ) : (

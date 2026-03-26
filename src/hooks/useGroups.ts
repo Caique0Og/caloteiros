@@ -49,6 +49,40 @@ export function useGroups() {
     return { members, expenses, debts };
   };
 
+  const recalcGroupDebts = async (groupId: string) => {
+    const membersCol = collection(db, 'groups', groupId, 'members');
+    const expensesCol = collection(db, 'groups', groupId, 'expenses');
+    const debtsCol = collection(db, 'groups', groupId, 'debts');
+
+    const [membersSnap, expensesSnap, oldDebtsSnap] = await Promise.all([
+      getDocs(membersCol),
+      getDocs(expensesCol),
+      getDocs(debtsCol),
+    ]);
+
+    const members: Member[] = membersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Member));
+    const expenses: Expense[] = expensesSnap.docs.map(d => {
+      const data = d.data();
+      return {
+        id: d.id,
+        ...data,
+        date: (data.date as Timestamp).toDate().toISOString(),
+      } as Expense;
+    });
+
+    const groupSnap = await getDoc(doc(db, 'groups', groupId));
+    const groupBudget = groupSnap.exists() ? (groupSnap.data().budget as number | undefined) : undefined;
+    const newDebts = calculateDebts(members, expenses, groupBudget);
+
+    const batch = writeBatch(db);
+    oldDebtsSnap.forEach(debtDoc => batch.delete(debtDoc.ref));
+    newDebts.forEach(debt => {
+      const { id, ...rest } = debt;
+      batch.set(doc(debtsCol), rest);
+    });
+    await batch.commit();
+  };
+
   const fetchGroups = useCallback(async () => {
     if (!user) {
       setGroups([]);
@@ -71,6 +105,7 @@ export function useGroups() {
             adminId: groupData.createdBy,
             date: (groupData.createdAt as Timestamp).toDate().toISOString(),
             location: groupData.location,
+            budget: groupData.budget,
             ...details,
           };
         })
@@ -89,7 +124,7 @@ export function useGroups() {
     fetchGroups();
   }, [fetchGroups]);
 
-  const createGroup = async (name: string, location: string, memberUsernames: string[]): Promise<{ id: string; name: string } | null> => {
+  const createGroup = async (name: string, location: string, budget: number, memberUsernames: string[]): Promise<{ id: string; name: string } | null> => {
     if (!user) return null;
 
     const batch = writeBatch(db);
@@ -111,6 +146,7 @@ export function useGroups() {
     const groupDocRef = await addDoc(collection(db, 'groups'), {
       name,
       location,
+      budget,
       createdBy: user.id,
       createdAt: serverTimestamp(),
       memberIds: foundMembers.map(m => m.id),
@@ -130,32 +166,13 @@ export function useGroups() {
   const addExpense = async (groupId: string, payerId: string, amount: number, description: string) => {
     if (!user) return;
 
-    const group = groups.find(g => g.id === groupId);
-    if (!group) return;
-
-    const batch = writeBatch(db);
-
     // 1. Adicionar a nova despesa
     const expenseColRef = collection(db, 'groups', groupId, 'expenses');
-    batch.set(doc(expenseColRef), { payerId, amount, description, date: serverTimestamp(), groupId });
+    await addDoc(expenseColRef, { payerId, amount, description, date: serverTimestamp(), groupId });
 
-    // 2. Recalcular dívidas
-    const tempExpense: Expense = { id: '', groupId, payerId, amount, description, date: new Date().toISOString() };
-    const newDebts = calculateDebts(group.members, [...group.expenses, tempExpense]);
+    // 2. Recalcular dívidas usando o orçamento do grupo (se houver)
+    await recalcGroupDebts(groupId);
 
-    // 3. Deletar dívidas antigas
-    const oldDebtsQuery = query(collection(db, 'groups', groupId, 'debts'));
-    const oldDebtsSnap = await getDocs(oldDebtsQuery);
-    oldDebtsSnap.forEach(debtDoc => batch.delete(debtDoc.ref));
-
-    // 4. Adicionar novas dívidas
-    const debtsColRef = collection(db, 'groups', groupId, 'debts');
-    newDebts.forEach(debt => {
-      const { id, ...rest } = debt; // Remove o id, Firestore gera automaticamente
-      batch.set(doc(debtsColRef), rest);
-    });
-
-    await batch.commit();
     await fetchGroups();
   };
 
@@ -175,5 +192,91 @@ export function useGroups() {
     await fetchGroups();
   };
 
-  return { groups, loading, createGroup, addExpense, settleDebt, deleteGroup };
+  const removeMember = async (groupId: string, memberId: string) => {
+    if (!user) return;
+
+    const batch = writeBatch(db);
+    const groupDocRef = doc(db, 'groups', groupId);
+    const memberDocRef = doc(db, 'groups', groupId, 'members', memberId);
+
+    const groupSnap = await getDoc(groupDocRef);
+    if (!groupSnap.exists()) return;
+
+    const currentMemberIds: string[] = groupSnap.data().memberIds || [];
+    const updatedMemberIds = currentMemberIds.filter((id) => id !== memberId);
+
+    batch.update(groupDocRef, { memberIds: updatedMemberIds });
+    batch.delete(memberDocRef);
+
+    await batch.commit();
+
+    // Recalcular dívidas depois da remoção
+    await recalcGroupDebts(groupId);
+    await fetchGroups();
+  };
+
+  const updateGroup = async (groupId: string, updates: { name?: string; location?: string; budget?: number; newMemberUsernames?: string[]; memberNameUpdates?: { memberId: string; newName: string }[] }) => {
+    if (!user) return;
+
+    try {
+      const batch = writeBatch(db);
+      const groupDocRef = doc(db, 'groups', groupId);
+
+      // Atualizar campos do grupo
+      const updateData: any = {};
+      if (updates.name) updateData.name = updates.name;
+      if (updates.location !== undefined) updateData.location = updates.location;
+      if (updates.budget !== undefined) updateData.budget = updates.budget;
+
+      if (Object.keys(updateData).length > 0) {
+        batch.update(groupDocRef, updateData);
+      }
+
+      // Adicionar novos membros
+      if (updates.newMemberUsernames && updates.newMemberUsernames.length > 0) {
+        const profilesQuery = query(collection(db, 'profiles'), where('username', 'in', updates.newMemberUsernames));
+        const profilesSnap = await getDocs(profilesQuery);
+        const newMembers = profilesSnap.docs.map(d => ({ id: d.id, name: d.data().username as string }));
+
+        if (newMembers.length !== updates.newMemberUsernames.length) {
+          const notFound = updates.newMemberUsernames.filter(un => !newMembers.some(nm => nm.name === un));
+          toast.error(`Usuários não encontrados: ${notFound.join(', ')}`);
+          return;
+        }
+
+        const groupSnap = await getDoc(groupDocRef);
+        if (groupSnap.exists()) {
+          const currentMemberIds = groupSnap.data().memberIds || [];
+          const newMemberIds = newMembers.map(m => m.id);
+          batch.update(groupDocRef, { memberIds: [...new Set([...currentMemberIds, ...newMemberIds])] });
+        }
+
+        newMembers.forEach(member => {
+          const memberDocRef = doc(db, 'groups', groupId, 'members', member.id);
+          batch.set(memberDocRef, { name: member.name }, { merge: true });
+        });
+      }
+
+      // Atualizar nomes de membros existentes
+      if (updates.memberNameUpdates && updates.memberNameUpdates.length > 0) {
+        updates.memberNameUpdates.forEach(update => {
+          const memberDocRef = doc(db, 'groups', groupId, 'members', update.memberId);
+          batch.update(memberDocRef, { name: update.newName });
+        });
+      }
+
+      await batch.commit();
+
+      // Sempre recalcular dívidas após qualquer mudança relevante para o grupo
+      await recalcGroupDebts(groupId);
+
+      await fetchGroups();
+      toast.success('Grupo atualizado com sucesso!');
+    } catch (error) {
+      console.error('Error updating group:', error);
+      toast.error('Erro ao atualizar o grupo.');
+    }
+  };
+
+  return { groups, loading, createGroup, addExpense, settleDebt, deleteGroup, updateGroup, removeMember };
 }

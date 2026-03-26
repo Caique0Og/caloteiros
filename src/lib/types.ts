@@ -27,6 +27,7 @@ export interface Group {
   adminId: string;
   date: string;
   location?: string;
+  budget?: number;
   members: Member[];
   expenses: Expense[];
   debts: Debt[];

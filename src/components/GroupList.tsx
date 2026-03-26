@@ -34,7 +34,7 @@ export default function GroupList({ groups, onSelect }: Props) {
             <div className="flex-1">
               <h3 className="font-semibold text-lg group-hover:text-primary transition-colors">{g.name}</h3>
               <div className="flex gap-3 text-sm text-muted-foreground mt-1">
-                <span>{g.members.length} membros</span>
+                <span>{g.members.length} membro{g.members.length > 1 ? 's' : ''} ({g.members.map(m => m.name).join(', ')})</span>
                 {g.location && (
                   <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{g.location}</span>
                 )}
