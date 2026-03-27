@@ -83,5 +83,35 @@ export function useAuth() {
     await Promise.allSettled([supabase.auth.signOut(), firebase.signOut()]);
   };
 
-  return { user, loading, signIn, signUp, signInWithGoogle, signOut };
+  const deleteAccount = async () => {
+    if (!user) {
+      throw new Error('Usuário não autenticado');
+    }
+
+    try {
+      if (firebase.user) {
+        // Primeiro tenta excluir conta Firebase (requer login recente)
+        await firebase.deleteAccount();
+      }
+
+      if (user.id) {
+        // Tenta remover conta Supabase também (via Edge Function - service role).
+        const { error } = await supabase.functions.invoke('delete-user', {
+          body: { userId: user.id },
+        });
+        if (error) {
+          console.error('Erro ao deletar conta Supabase via função:', error);
+          throw error;
+        }
+      }
+
+      // Logout garantido depois da exclusão das contas.
+      await Promise.allSettled([supabase.auth.signOut(), firebase.signOut()]);
+    } catch (error) {
+      console.error('Erro ao deletar conta:', error);
+      throw error;
+    }
+  };
+
+  return { user, loading, signIn, signUp, signInWithGoogle, signOut, deleteAccount };
 }

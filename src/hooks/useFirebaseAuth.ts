@@ -7,6 +7,7 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   getAdditionalUserInfo,
+  deleteUser,
   type User,
 } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
@@ -62,5 +63,18 @@ export function useFirebaseAuth() {
 
   const signOut = () => firebaseSignOut(auth);
 
-  return { user, loading, signIn, signUp, signInWithGoogle, signOut };
+  const deleteAccount = async () => {
+    if (!auth.currentUser) {
+      throw new Error('Usuário Firebase não autenticado');
+    }
+
+    try {
+      await deleteUser(auth.currentUser);
+    } catch (error) {
+      console.error('Erro ao deletar conta Firebase:', error);
+      throw error;
+    }
+  };
+
+  return { user, loading, signIn, signUp, signInWithGoogle, signOut, deleteAccount };
 }

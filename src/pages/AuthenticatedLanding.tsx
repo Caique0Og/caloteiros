@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useGroups } from '@/hooks/useGroups';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { Plus, Skull, LogOut, Sun, Moon } from 'lucide-react';
+import { Plus, Skull, LogOut, UserX, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 import GroupList from '@/components/GroupList';
 import GroupDetail from '@/components/GroupDetail';
@@ -11,8 +12,9 @@ import EditGroupForm from '@/components/EditGroupForm';
 import { toast } from 'sonner';
 
 const AuthenticatedLanding = () => {
-  const { user, signOut } = useAuth();
-  const { groups, loading, createGroup, addExpense, settleDebt, deleteGroup, updateGroup, removeMember } = useGroups();
+  const navigate = useNavigate();
+  const { user, signOut, deleteAccount } = useAuth();
+  const { groups, loading, createGroup, addExpense, settleDebt, deleteGroup, updateGroup, removeMember, deleteUserData } = useGroups();
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -55,6 +57,31 @@ const AuthenticatedLanding = () => {
             </Button>
             <Button variant="ghost" size="icon" onClick={toggleTheme} title="Alternar tema">
               {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </Button>
+            <Button
+              variant="destructive"
+              size="icon"
+              onClick={async () => {
+                const confirmed = window.confirm('Tem certeza? Esta ação excluirá sua conta e todos os dados relacionados.');
+                if (!confirmed || !user) return;
+
+                try {
+                  await deleteAccount();
+                  await deleteUserData();
+                  toast.success('Conta excluída com sucesso!');
+                  navigate('/');
+                } catch (error: any) {
+                  console.error('Erro ao deletar conta:', error);
+                  if (error?.code === 'auth/requires-recent-login') {
+                    toast.error('Reautentique-se e tente novamente antes de excluir.');
+                  } else {
+                    toast.error('Não foi possível excluir a conta. Tente novamente.');
+                  }
+                }
+              }}
+              title="Deletar conta"
+            >
+              <UserX className="w-4 h-4" />
             </Button>
             <Button variant="ghost" size="icon" onClick={signOut} title="Sair">
               <LogOut className="w-4 h-4" />

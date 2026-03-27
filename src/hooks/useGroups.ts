@@ -192,6 +192,44 @@ export function useGroups() {
     await fetchGroups();
   };
 
+  const deleteUserData = async () => {
+    if (!user) return;
+
+    // 1. Remove o usuário de todos os grupos em que participa
+    const groupsQuery = query(collection(db, 'groups'), where('memberIds', 'array-contains', user.id));
+    const groupsSnapshot = await getDocs(groupsQuery);
+
+    for (const groupDoc of groupsSnapshot.docs) {
+      const groupId = groupDoc.id;
+      const groupData = groupDoc.data();
+
+      if (groupData.createdBy === user.id) {
+        // Se o usuário é criador/admin, remove o grupo inteiro
+        await deleteGroup(groupId);
+      } else {
+        const groupDocRef = doc(db, 'groups', groupId);
+        const memberDocRef = doc(db, 'groups', groupId, 'members', user.id);
+        const currentMemberIds: string[] = groupData.memberIds || [];
+        const updatedMemberIds = currentMemberIds.filter((id) => id !== user.id);
+
+        const batch = writeBatch(db);
+        batch.update(groupDocRef, { memberIds: updatedMemberIds });
+        batch.delete(memberDocRef);
+        await batch.commit();
+
+        // Recalcula dívidas do grupo após remoção
+        await recalcGroupDebts(groupId);
+      }
+    }
+
+    // 2. Remove o perfil do usuário
+    await deleteDoc(doc(db, 'profiles', user.id));
+
+    // 3. Atualiza estado local
+    setGroups([]);
+    setLoading(false);
+  };
+
   const removeMember = async (groupId: string, memberId: string) => {
     if (!user) return;
 
@@ -278,5 +316,5 @@ export function useGroups() {
     }
   };
 
-  return { groups, loading, createGroup, addExpense, settleDebt, deleteGroup, updateGroup, removeMember };
+  return { groups, loading, createGroup, addExpense, settleDebt, deleteGroup, updateGroup, removeMember, deleteUserData };
 }
