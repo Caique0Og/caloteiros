@@ -9,6 +9,7 @@ import Splash from "./pages/Splash";
 import Auth from "./pages/Auth";
 import Onboarding from "./pages/Onboarding";
 import Index from "./pages/Index";
+import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -17,6 +18,17 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><p className="text-muted-foreground">Carregando...</p></div>;
   if (!user) return <Navigate to="/login" replace />;
+  
+  // Se for admin tentando acessar rota de usuário (/app), manda para /admin
+  if (user.role === 'admin') return <Navigate to="/admin" replace />;
+  
+  return <>{children}</>;
+}
+
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><p className="text-muted-foreground">Carregando...</p></div>;
+  if (!user || user.role !== 'admin') return <Navigate to="/app" replace />;
   return <>{children}</>;
 }
 
@@ -33,6 +45,7 @@ const App = () => (
           <Route path="/login" element={<Auth />} />
           <Route path="/welcome" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
           <Route path="/app" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+          <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

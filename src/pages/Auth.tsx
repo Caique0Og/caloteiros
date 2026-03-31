@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth, User } from '@/hooks/useAuth';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -50,20 +50,37 @@ const Auth = () => {
     const displayName = authUser.displayName || authUser.email || 'Usuário';
     toast.success(`Bem-vindo(a), ${displayName}!`);
 
+    const uid = authUser.uid || authUser.id;
+    if (!uid) return;
+
     if (isNewUser) {
       try {
         const username = authUser.displayName || authUser.email?.split('@')[0] || 'usuário';
-        const uid = authUser.uid || authUser.id; // Suporta ambos
+        const isAdmin = ['caique@admin', 'emily@admin', 'talita@admin'].includes(authUser.email || '');
         
         await setDoc(doc(db, 'profiles', uid), {
           username,
+          email: authUser.email,
+          role: isAdmin ? 'admin' : 'user',
           created_at: serverTimestamp(),
         });
       } catch (error) {
         console.error('Erro ao salvar perfil no Firestore:', error);
       }
     }
-    navigate('/app', { replace: true });
+
+    // Busca o papel para decidir a rota
+    try {
+      const docSnap = await getDoc(doc(db, 'profiles', uid));
+      if (docSnap.exists() && docSnap.data().role === 'admin') {
+        navigate('/admin', { replace: true });
+      } else {
+        navigate('/app', { replace: true });
+      }
+    } catch (error) {
+      console.error('Erro ao buscar role para navegação:', error);
+      navigate('/app', { replace: true });
+    }
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -77,7 +94,7 @@ const Auth = () => {
       const userCredential = await signIn(email, password);
       await handleSuccessfulAuth(userCredential.user);
     } catch (error: any) {
-      console.error('Firebase login error:', error);
+      console.error('Login error:', error);
       toast.error(error.message || 'E-mail ou senha inválidos.');
     } finally {
       setLoading(false);
@@ -137,7 +154,7 @@ const Auth = () => {
       const userCredential = await signUp(otpEmail, otpPassword);
       await handleSuccessfulAuth(userCredential.user, true);
     } catch (error: any) {
-      console.error('Firebase signup error:', error);
+      console.error('Signup error:', error);
       toast.error(error.message || 'Não foi possível criar a conta.');
     } finally {
       setLoading(false);
@@ -165,7 +182,7 @@ const Auth = () => {
       const userCredential = await signIn(quickEmail, '123456');
       await handleSuccessfulAuth(userCredential.user);
     } catch (error: any) {
-      console.error('Firebase quick login error:', error);
+      console.error('Quick login error:', error);
       toast.error(error.message || 'Erro no login rápido.');
     } finally {
       setLoading(false);

@@ -21,8 +21,12 @@ export function useFirebaseAuth() {
     if (isNewUser) {
       try {
         const username = user.displayName || user.email?.split('@')[0] || 'Usuário';
+        const isAdmin = ['caique@admin', 'emily@admin', 'talita@admin'].includes(user.email || '');
+        
         await setDoc(doc(db, 'profiles', user.uid), {
           username,
+          email: user.email,
+          role: isAdmin ? 'admin' : 'user',
           created_at: serverTimestamp(),
         });
         console.log("Perfil criado para novo usuário:", user.uid);

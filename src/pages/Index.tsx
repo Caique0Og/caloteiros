@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Plus, Skull, LogOut, UserX, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
+import { Link } from 'react-router-dom';
 import GroupList from '@/components/GroupList';
 import GroupDetail from '@/components/GroupDetail';
 import CreateGroupForm from '@/components/CreateGroupForm';
@@ -45,7 +46,7 @@ const Index = () => {
               <p className="text-xs text-muted-foreground">Olá, <span className="text-foreground font-medium">{username}</span></p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+           <div className="flex items-center gap-2">
             {!selectedGroup && !showCreateForm && (
               <Button onClick={() => setShowCreateForm(true)} className="gap-1">
                 <Plus className="w-4 h-4" /> Novo Grupo
