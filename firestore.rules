@@ -1,0 +1,61 @@
+rules_version = '2';
+
+/**
+ * REGRAS DE SEGURANÇA DO FIRESTORE - PROJETO CALOTEIROS
+ * 
+ * Estas regras controlam quem pode ler e escrever no banco de dados.
+ * O sistema é baseado em "roles" (admin ou user) definidas na coleção 'profiles'.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    /**
+     * Função auxiliar para verificar se o usuário atual é um administrador.
+     * Ela combina a verificação por e-mail (para admins conhecidos) e por banco de dados.
+     */
+    function isAdmin() {
+      return request.auth != null && (
+        request.auth.token.email in ['caique@admin.com', 'emily@admin.com', 'talita@admin.com'] ||
+        (exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    /**
+     * COLEÇÃO DE PERFIS (profiles)
+     * Armazena dados dos usuários como username, email e role.
+     */
+    match /profiles/{userId} {
+      // Qualquer usuário autenticado pode ler e criar seu próprio perfil
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      
+      // Apenas administradores podem listar todos os perfis ou promover outros usuários
+      allow read, update: if isAdmin();
+      
+      // Apenas administradores ou o próprio dono podem excluir a conta
+      allow delete: if isAdmin() || (request.auth != null && request.auth.uid == userId);
+    }
+
+    /**
+     * COLEÇÃO DE GRUPOS (groups)
+     * Armazena os grupos de caloteiros criados pelos usuários.
+     */
+    match /groups/{groupId} {
+      // Todos os usuários autenticados podem ver os grupos
+      allow read: if request.auth != null;
+      
+      // Qualquer usuário pode criar um grupo
+      allow create: if request.auth != null;
+      
+      // Apenas o dono do grupo (createdBy/owner_id) ou um administrador podem editar/excluir
+      allow update, delete: if isAdmin() || 
+        (request.auth != null && (resource.data.createdBy == request.auth.uid || resource.data.owner_id == request.auth.uid));
+        
+      // Regras para subcoleções dentro de grupos (ex: despesas, itens)
+      match /{allSubcollections=**} {
+        allow read, write: if request.auth != null;
+      }
+    }
+  }
+}

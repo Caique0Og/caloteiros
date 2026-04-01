@@ -1,19 +1,19 @@
 import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { useAuth, User } from '@/hooks/useAuth';
+import { useAuth, AppUser } from '@/hooks/useAuth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skull, LogIn, UserPlus, ArrowLeft } from 'lucide-react';
+import { Skull, LogIn, UserPlus, ArrowLeft, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from '@/lib/firebase';
 import { sendOtpEmail } from '@/lib/emailjs';
+import { ADMIN_EMAILS } from '@/lib/config';
 
 type View = 'login' | 'signup' | 'otp';
 
-// Gera um código OTP de 6 dígitos
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 const Auth = () => {
@@ -26,7 +26,6 @@ const Auth = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Estado do OTP
   const [otpCode, setOtpCode] = useState('');
   const [generatedOtp, setGeneratedOtp] = useState('');
   const [otpEmail, setOtpEmail] = useState('');
@@ -35,32 +34,30 @@ const Auth = () => {
   if (authLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-muted-foreground">Carregando...</p>
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
       </div>
     );
   }
-  if (user) return <Navigate to="/app" replace />;
+  
+  if (user) {
+    return <Navigate to={(user as AppUser).role === 'admin' ? "/admin" : "/app"} replace />;
+  }
 
-  const handleSuccessfulAuth = async (authUser: User, isNewUser: boolean = false) => {
-    if (!authUser) {
-      console.error('handleSuccessfulAuth: authUser is undefined');
-      return;
-    }
+  const handleSuccessfulAuth = async (firebaseUser: any, isNewUser: boolean = false) => {
+    if (!firebaseUser) return;
     
-    const displayName = authUser.displayName || authUser.email || 'Usuário';
-    toast.success(`Bem-vindo(a), ${displayName}!`);
-
-    const uid = authUser.uid || authUser.id;
-    if (!uid) return;
-
+    const uid = firebaseUser.uid;
+    const email = firebaseUser.email;
+    const displayName = firebaseUser.displayName || email || 'Usuário';
+    
     if (isNewUser) {
       try {
-        const username = authUser.displayName || authUser.email?.split('@')[0] || 'usuário';
-        const isAdmin = ['caique@admin', 'emily@admin', 'talita@admin'].includes(authUser.email || '');
+        const username = firebaseUser.displayName || email?.split('@')[0] || 'usuário';
+        const isAdmin = ADMIN_EMAILS.includes(email || '');
         
         await setDoc(doc(db, 'profiles', uid), {
           username,
-          email: authUser.email,
+          email,
           role: isAdmin ? 'admin' : 'user',
           created_at: serverTimestamp(),
         });
@@ -69,12 +66,13 @@ const Auth = () => {
       }
     }
 
-    // Busca o papel para decidir a rota
     try {
       const docSnap = await getDoc(doc(db, 'profiles', uid));
       if (docSnap.exists() && docSnap.data().role === 'admin') {
+        toast.success(`Bem-vindo(a) Administrador(a), ${displayName}!`);
         navigate('/admin', { replace: true });
       } else {
+        toast.success(`Bem-vindo(a), ${displayName}!`);
         navigate('/app', { replace: true });
       }
     } catch (error) {
@@ -101,7 +99,6 @@ const Auth = () => {
     }
   };
 
-  // Etapa 1 do cadastro: valida campos e envia OTP
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password || !confirmPassword) {
@@ -121,12 +118,9 @@ const Auth = () => {
     try {
       const otp = generateOtp();
       await sendOtpEmail({ to_email: email, otp });
-
-      // Salva o OTP e credenciais em memória para usar depois
       setGeneratedOtp(otp);
       setOtpEmail(email);
       setOtpPassword(password);
-
       toast.success('Código enviado para seu email!');
       setView('otp');
     } catch (error: any) {
@@ -137,7 +131,6 @@ const Auth = () => {
     }
   };
 
-  // Etapa 2: valida o OTP e cria a conta
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!otpCode) {
@@ -179,7 +172,7 @@ const Auth = () => {
   const quickLogin = async (quickEmail: string) => {
     setLoading(true);
     try {
-      const userCredential = await signIn(quickEmail, '123456');
+      const userCredential = await signIn(quickEmail, 'admin123');
       await handleSuccessfulAuth(userCredential.user);
     } catch (error: any) {
       console.error('Quick login error:', error);
@@ -193,8 +186,6 @@ const Auth = () => {
     setLoading(true);
     try {
       await signInWithGoogle();
-      // Com popup, o fluxo continua aqui após o login.
-      // O observador de estado (onAuthStateChanged) cuidará do redirecionamento para /app.
     } catch (err: any) {
       console.error('Erro ao entrar com Google:', err);
       toast.error(err.message || 'Erro ao entrar com Google');
@@ -205,7 +196,7 @@ const Auth = () => {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4">
-      <Card className="w-full max-w-sm border-border/50">
+      <Card className="w-full max-w-sm border-border/50 animate-in fade-in zoom-in duration-300">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-2">
             <div className="w-14 h-14 rounded-xl bg-primary/15 flex items-center justify-center neon-glow">
@@ -221,8 +212,6 @@ const Auth = () => {
         </CardHeader>
 
         <CardContent className="space-y-4">
-
-          {/* LOGIN */}
           {view === 'login' && (
             <>
               <form onSubmit={handleLogin} className="space-y-3">
@@ -235,7 +224,8 @@ const Auth = () => {
                   <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••" />
                 </div>
                 <Button type="submit" className="w-full gap-2" disabled={loading}>
-                  <LogIn className="w-4 h-4" /> Entrar
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
+                  Entrar
                 </Button>
               </form>
 
@@ -264,14 +254,13 @@ const Auth = () => {
               </div>
 
               <div className="grid grid-cols-3 gap-2">
-                <Button variant="outline" size="sm" onClick={() => quickLogin('vini@teste')} disabled={loading}>Vini</Button>
-                <Button variant="outline" size="sm" onClick={() => quickLogin('joao@teste')} disabled={loading}>João</Button>
-                <Button variant="outline" size="sm" onClick={() => quickLogin('ca@teste')} disabled={loading}>Ca</Button>
+                <Button variant="outline" size="sm" onClick={() => quickLogin('caique@admin.com')} disabled={loading}>Caique</Button>
+                <Button variant="outline" size="sm" onClick={() => quickLogin('emily@admin.com')} disabled={loading}>Emily</Button>
+                <Button variant="outline" size="sm" onClick={() => quickLogin('talita@admin.com')} disabled={loading}>Talita</Button>
               </div>
             </>
           )}
 
-          {/* SIGNUP */}
           {view === 'signup' && (
             <>
               <form onSubmit={handleSignup} className="space-y-3">
@@ -299,7 +288,6 @@ const Auth = () => {
             </>
           )}
 
-          {/* OTP */}
           {view === 'otp' && (
             <>
               <p className="text-sm text-muted-foreground text-center">
@@ -333,7 +321,6 @@ const Auth = () => {
               </Button>
             </>
           )}
-
         </CardContent>
       </Card>
     </div>

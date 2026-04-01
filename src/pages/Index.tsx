@@ -63,11 +63,11 @@ const Index = () => {
                 if (!confirmed || !user) return;
 
                 try {
-                  // 1) tenta excluir a conta de autenticação primeiro
-                  await deleteAccount();
-
-                  // 2) só depois exclui dados de domínio (grupos/profiles)
+                  // 1) primeiro exclui dados de domínio (grupos/profiles) enquanto ainda está autorizado
                   await deleteUserData();
+
+                  // 2) só depois exclui a conta de autenticação (isso encerrará a sessão)
+                  await deleteAccount();
 
                   toast.success('Conta excluída com sucesso!');
                   navigate('/');

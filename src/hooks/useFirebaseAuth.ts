@@ -12,27 +12,28 @@ import {
 } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { ADMIN_EMAILS } from "@/lib/config";
 
 export function useFirebaseAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const createProfileIfNew = async (user: User, isNewUser: boolean) => {
-    if (isNewUser) {
-      try {
-        const username = user.displayName || user.email?.split('@')[0] || 'Usuário';
-        const isAdmin = ['caique@admin', 'emily@admin', 'talita@admin'].includes(user.email || '');
-        
-        await setDoc(doc(db, 'profiles', user.uid), {
-          username,
-          email: user.email,
-          role: isAdmin ? 'admin' : 'user',
-          created_at: serverTimestamp(),
-        });
-        console.log("Perfil criado para novo usuário:", user.uid);
-      } catch (error) {
-        console.error("Erro ao criar perfil no Firestore:", error);
-      }
+  const createProfileIfNew = async (firebaseUser: User, isNewUser: boolean) => {
+    if (!isNewUser) return;
+
+    try {
+      const username = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Usuário';
+      const isAdmin = ADMIN_EMAILS.includes(firebaseUser.email || '');
+      
+      await setDoc(doc(db, 'profiles', firebaseUser.uid), {
+        username,
+        email: firebaseUser.email,
+        role: isAdmin ? 'admin' : 'user',
+        created_at: serverTimestamp(),
+      });
+      console.log("Perfil criado para novo usuário:", firebaseUser.uid);
+    } catch (error) {
+      console.error("Erro ao criar perfil no Firestore:", error);
     }
   };
 
@@ -44,11 +45,11 @@ export function useFirebaseAuth() {
     return () => unsubscribe();
   }, []);
 
-  const signIn = (email: string, password: string) =>
-    signInWithEmailAndPassword(auth, email, password);
+  const signIn = useCallback((email: string, password: string) =>
+    signInWithEmailAndPassword(auth, email, password), []);
 
-  const signUp = (email: string, password: string) =>
-    createUserWithEmailAndPassword(auth, email, password);
+  const signUp = useCallback((email: string, password: string) =>
+    createUserWithEmailAndPassword(auth, email, password), []);
 
   const signInWithGoogle = useCallback(async () => {
     const provider = new GoogleAuthProvider();
@@ -65,20 +66,14 @@ export function useFirebaseAuth() {
     }
   }, []);
 
-  const signOut = () => firebaseSignOut(auth);
+  const signOut = useCallback(() => firebaseSignOut(auth), []);
 
-  const deleteAccount = async () => {
+  const deleteAccount = useCallback(async () => {
     if (!auth.currentUser) {
       throw new Error('Usuário Firebase não autenticado');
     }
-
-    try {
-      await deleteUser(auth.currentUser);
-    } catch (error) {
-      console.error('Erro ao deletar conta Firebase:', error);
-      throw error;
-    }
-  };
+    await deleteUser(auth.currentUser);
+  }, []);
 
   return { user, loading, signIn, signUp, signInWithGoogle, signOut, deleteAccount };
 }
